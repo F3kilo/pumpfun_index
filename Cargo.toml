@@ -1,0 +1,25 @@
+[package]
+name = "pumpfun_indexer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tokio = { version = "1.47", features = ["full"] }
+tower = { version = "0.5.2", features = ["util"] }
+tower-http = { version = "0.6.1", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+reqwest = { version = "0.12", features = ["json", "cookies"] }
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono"] }
+dotenv = "0.15"
+solana-pubsub-client = "2.3.6"
+solana-pubkey = "2.4.0"
+solana-rpc-client-types = "2.3.6"
+solana-commitment-config = "2.2.1"
+solana-transaction-status-client-types = "2.3.6"
+pumpfun = "4.3.0"

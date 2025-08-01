@@ -1,0 +1,23 @@
+services:
+
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_USER: postgres
+      POSTGRES_DB: price_scrapper
+    ports:
+      - 5432:5432
+
+  btc_scrapper:
+    build:
+      dockerfile: Dockerfile
+      context: .
+      args:
+        POSTGRES_CONN_STR: postgres://postgres:example@db:5432/price_scrapper
+    ports:
+      - 33987:33987
+    depends_on:
+      - db
+      - cookies
