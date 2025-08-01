@@ -8,7 +8,7 @@ axum = { version = "0.8", features = ["ws"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 tokio = { version = "1.47", features = ["full"] }
 tower = { version = "0.5.2", features = ["util"] }
-tower-http = { version = "0.6.1", features = ["fs", "trace"] }
+tower-http = { version = "0.6.1", features = ["fs", "trace", "cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
@@ -22,4 +22,6 @@ solana-pubkey = "2.4.0"
 solana-rpc-client-types = "2.3.6"
 solana-commitment-config = "2.2.1"
 solana-transaction-status-client-types = "2.3.6"
-pumpfun = "4.3.0"
+pumpfun = { version = "4.3.0", features = ["stream"] }
+solana-keypair = "2.2.3"
+# redis = { version = "0.32.4", features = ["tokio-comp"] }

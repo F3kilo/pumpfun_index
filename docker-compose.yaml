@@ -6,18 +6,17 @@ services:
     environment:
       POSTGRES_PASSWORD: example
       POSTGRES_USER: postgres
-      POSTGRES_DB: price_scrapper
+      POSTGRES_DB: pumpfun_indexer
     ports:
       - 5432:5432
 
-  btc_scrapper:
+  pumpfun_index:
     build:
       dockerfile: Dockerfile
       context: .
       args:
-        POSTGRES_CONN_STR: postgres://postgres:example@db:5432/price_scrapper
+        POSTGRES_CONN_STR: postgres://postgres:example@db:5432/pumpfun_indexer
     ports:
       - 33987:33987
     depends_on:
       - db
-      - cookies

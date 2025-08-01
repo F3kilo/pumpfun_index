@@ -3160,7 +3160,9 @@ version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89673345824156ffdcbdd04d9778ef72774df7de99c798f18bd62380ba5149c9"
 dependencies = [
+ "base64 0.22.1",
  "borsh 1.5.7",
+ "futures",
  "isahc",
  "mpl-token-metadata",
  "serde",
@@ -3185,6 +3187,7 @@ dependencies = [
  "reqwest",
  "serde",
  "solana-commitment-config",
+ "solana-keypair",
  "solana-pubkey",
  "solana-pubsub-client",
  "solana-rpc-client-types",

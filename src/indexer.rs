@@ -1,44 +1,57 @@
-use std::pin::Pin;
+use std::sync::Arc;
 
-use futures_util::Stream;
-use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
-use solana_pubkey::{Pubkey, pubkey};
-use solana_pubsub_client::nonblocking::pubsub_client;
-use solana_pubsub_client::pubsub_client::PubsubAccountClientSubscription;
-use solana_rpc_client_types::config::{
-    RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
-};
-use solana_rpc_client_types::response::{Response, RpcBlockUpdate};
-use solana_transaction_status_client_types::{TransactionDetails, UiTransactionEncoding};
-use tokio::sync::broadcast::Sender;
-
-const PUMPFUN_ADDR_STR: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
-// const PUMPFUN_ADDR: Pubkey = pubkey!("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
-
-type BlocksStream = Pin<Box<dyn Stream<Item = Response<RpcBlockUpdate>> + Send>>;
+use pumpfun::PumpFun;
+use pumpfun::common::stream::{PumpFunEvent, Subscription};
+use pumpfun::common::types::{Cluster, PriorityFee};
+use solana_commitment_config::CommitmentConfig;
+use solana_keypair::Keypair;
+use tokio::sync::mpsc::Sender;
 
 pub struct Indexer {
-    client: pubsub_client::PubsubClient,
-    pumpfun_blocks_stream: BlocksStream,
+    client: PumpFun,
 }
 
 impl Indexer {
-    pub async fn run(api_url: &str, pumpfun_ops_sender: Sender<PumpfunOp>) -> anyhow::Result<()> {
-        let filter = RpcBlockSubscribeFilter::MentionsAccountOrProgram(PUMPFUN_ADDR_STR.into());
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            client: PumpFun::new(
+                Arc::new(Keypair::new()),
+                Cluster::mainnet(CommitmentConfig::finalized(), PriorityFee::default()),
+            ),
+        })
+    }
 
-        let config = RpcBlockSubscribeConfig {
-            commitment: Some(CommitmentConfig {
-                commitment: CommitmentLevel::Finalized,
-            }),
-            encoding: Some(UiTransactionEncoding::JsonParsed),
-            transaction_details: Some(TransactionDetails::Full),
-            ..Default::default()
-        };
+    pub async fn subscribe(
+        &self,
+        pumpfun_ops_sender: Sender<PumpFunEvent>,
+    ) -> anyhow::Result<Subscription> {
+        let subscription = self
+            .client
+            .subscribe(
+                Some(CommitmentConfig::finalized()),
+                move |_, mb_event, mb_error, _| {
+                    tracing::trace!("Received event: {mb_event:?}");
 
-        let client = pubsub_client::PubsubClient::new(api_url).await?;
+                    if let Some(err) = mb_error {
+                        tracing::warn!("Error in subscription: {}", err);
+                        return;
+                    }
 
-        let (pumpfun_blocks_stream, _) = client.block_subscribe(filter, Some(config)).await?;
+                    if let Some(event) = mb_event {
+                        tracing::trace!("Sending Pumpfun event: {event:?}");
 
-        
+                        let sender_clone = pumpfun_ops_sender.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = sender_clone.send(event).await {
+                                tracing::warn!("Failed to send Pumpfun event: {e}");
+                            }
+                        });
+                    }
+                },
+            )
+            .await
+            .map_err(|e| anyhow::Error::msg(format!("Failed to subscribe: {}", e)))?;
+
+        Ok(subscription)
     }
 }
