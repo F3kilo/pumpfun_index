@@ -7,7 +7,6 @@ var ohlcSeries = chart.plot(0).ohlc(mapping);
 var socket;
 var token;
 var tokenName;
-var chartDataLen;
 
 const maxChartDataLen = 100;
 
@@ -67,18 +66,31 @@ function drawChart() {
   socket = new WebSocket("ws://localhost:33987/chart_data_ws/" + token + "/" + resolution);
 
   dataTable.remove();
-  chartDataLen = 0;
 
   socket.onmessage = function (event) {
     var data = JSON.parse(event.data);
 
+    selectable = mapping.createSelectable();
+    selectable.selectAll();
+
+    var iterator = selectable.getIterator();
+    var items_count = 0;
+
+
+    while (iterator.advance()) {
+      items_count++;
+    }
+
+    if (items_count > maxChartDataLen) {
+      dataTable.removeFirst(items_count - maxChartDataLen);
+    }
+
     var candle = data.candle;
     const date = new Date(data.timestamp * 1000);
     candle.x = date;
-    chartDataLen += 1;
-    
-    var removeData = chartDataLen + 1 > maxChartDataLen;
-    dataTable.addData([data.candle], removeData);
+
+    dataTable.addData([candle]);
+
 
     chart.draw();
   };
