@@ -5,6 +5,7 @@ use pumpfun::common::stream::PumpFunEvent;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 
+/// Candle with open, close, high, low and volume.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Candle {
     pub open: f64,
@@ -14,6 +15,7 @@ pub struct Candle {
     pub volume: f64,
 }
 
+/// Trade events time resolution.
 #[derive(Debug, Clone, Copy, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "resolution")]
 pub enum Resolution {
@@ -39,6 +41,7 @@ impl fmt::Display for Resolution {
 }
 
 impl Resolution {
+    /// Convert resolution to seconds.
     pub fn to_seconds(&self) -> u64 {
         match self {
             Resolution::S1 => 1,
@@ -50,10 +53,12 @@ impl Resolution {
         }
     }
 
+    /// Convert resolution to milliseconds.
     pub fn to_millis(&self) -> u64 {
         self.to_seconds() * 1000
     }
 
+    /// All available resolutions.
     pub fn all() -> [Resolution; 6] {
         [
             Resolution::S1,
@@ -65,12 +70,14 @@ impl Resolution {
         ]
     }
 
+    /// Align timestamp to the closest resolution step.
     pub fn align_datetime(&self, timestamp: DateTime<Utc>) -> DateTime<Utc> {
         let ts_millis = timestamp.timestamp_millis() as u64 / self.to_millis() * self.to_millis();
         DateTime::from_timestamp_millis(ts_millis as i64).expect("correct datetime")
     }
 }
 
+/// Trade event info.
 #[derive(Debug, Clone)]
 pub struct TradeInfo {
     pub mint_acc: String,
@@ -78,12 +85,14 @@ pub struct TradeInfo {
     pub token_amount: u64,
 }
 
+/// Price data with timestamp.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct TradeOhlcv {
     pub timestamp: u64,
     pub candle: Candle,
 }
 
+/// Token metadata.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize)]
 pub struct TokenMetadata {
     pub name: String,
@@ -91,6 +100,8 @@ pub struct TokenMetadata {
     pub uri: String,
 }
 
+/// Indexed pumpfun event.
+/// Index may be used for debugging.
 #[derive(Debug)]
 pub struct IndexedPumpfunEvent {
     pub index: u64,

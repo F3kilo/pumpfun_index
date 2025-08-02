@@ -10,11 +10,13 @@ use tokio::sync::mpsc::Sender;
 
 use crate::model::IndexedPumpfunEvent;
 
+/// Pumpfun event indexer.
 pub struct Indexer {
     client: PumpFun,
 }
 
 impl Indexer {
+    /// Create new indexer.
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
             client: PumpFun::new(
@@ -24,6 +26,9 @@ impl Indexer {
         })
     }
 
+    /// Subscribe to events.
+    /// Captured events will be sent to the given sender.
+    /// Returns subscription. It will stop event capture task on drop.
     pub async fn subscribe(
         &self,
         pumpfun_ops_sender: Sender<IndexedPumpfunEvent>,
@@ -48,9 +53,6 @@ impl Indexer {
 
                     if let Some(event) = mb_event {
                         let idx = index.fetch_add(1, Ordering::Relaxed);
-
-                        tracing::debug!("Got event #{idx}");
-
                         let idx_event = IndexedPumpfunEvent { index: idx, event };
 
                         let sender_clone = pumpfun_ops_sender.clone();

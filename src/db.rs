@@ -8,12 +8,14 @@ use crate::model::{Candle, Resolution, TokenMetadata, TradeInfo};
 
 static MIGRATOR: Migrator = sqlx::migrate!("pg/migrations");
 
+/// Database instance.
 #[derive(Clone)]
 pub struct Db {
     pool: PgPool,
 }
 
 impl Db {
+    /// Create new database instance.
     pub async fn new(connection_string: String) -> anyhow::Result<Self> {
         Ok(Self {
             pool: PgPool::connect(&connection_string).await?,
@@ -26,6 +28,7 @@ impl Db {
         Ok(())
     }
 
+    /// Get tokens list with metadata.
     pub async fn get_tokens(&self) -> Result<Vec<(String, TokenMetadata)>, anyhow::Error> {
         let rows = sqlx::query("SELECT mint, name, symbol, uri FROM token")
             .fetch_all(&self.pool)
@@ -37,6 +40,7 @@ impl Db {
             .collect())
     }
 
+    /// Read trades history.
     pub async fn trades_since(
         &self,
         mint_acc: &str,
@@ -80,6 +84,7 @@ impl Db {
         Ok(trades)
     }
 
+    /// Read last trade.
     pub async fn last_trade(
         &self,
         mint_acc: &str,
@@ -117,6 +122,7 @@ impl Db {
         Ok((datetime, candle))
     }
 
+    /// Insert new trade.
     pub async fn insert_trade(
         &self,
         timestamps: &[DateTime<Utc>],
@@ -139,13 +145,6 @@ impl Db {
         let volume: Vec<_> = (0..timestamps.len())
             .map(|_| info.token_amount as f64)
             .collect();
-
-        // if info.mint_acc == "EBcZRw5xEMyrxnFeM4hAccTnjR7WpxqwpC2rLcCNbtXV" {
-        //     dbg!(timestamps, &info, price);
-
-        //     let previous = self.last_trade(&info.mint_acc, Resolution::M1).await;
-        //     dbg!(previous);
-        // }
 
         sqlx::query(
             "INSERT INTO trades 
@@ -189,15 +188,11 @@ impl Db {
         .execute(&self.pool)
         .await?;
 
-        // if info.mint_acc == "EBcZRw5xEMyrxnFeM4hAccTnjR7WpxqwpC2rLcCNbtXV" {
-        //     let new = self.last_trade(&info.mint_acc, Resolution::M1).await;
-        //     dbg!(new);
-        // }
-
         Ok(())
     }
 
-    pub async fn insert_token_metadata(
+    /// Insert token metadata.
+    pub async fn insert_token(
         &self,
         mint_acc: String,
         metadata: Option<TokenMetadata>,
@@ -223,7 +218,7 @@ impl Db {
         Ok(())
     }
 
-    pub async fn get_token_metadata(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata> {
+    pub async fn get_token(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata> {
         let row = sqlx::query("SELECT name, symbol, uri FROM token WHERE mint = $1")
             .bind(mint_acc)
             .fetch_optional(&self.pool)

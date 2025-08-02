@@ -6,6 +6,7 @@ use crate::cache::{self, Cache};
 use crate::db::Db;
 use crate::model::{Candle, Resolution, TokenMetadata, TradeInfo};
 
+/// Storage layer to unify work with DB and cache.
 #[derive(Clone)]
 pub struct Storage {
     db: Db,
@@ -13,14 +14,17 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// Create new storage.
     pub async fn new(db: Db, cache: Cache) -> Self {
         Self { db, cache }
     }
 
+    /// Get tokens list with metadata.
     pub async fn get_tokens(&self) -> Result<Vec<(String, TokenMetadata)>, anyhow::Error> {
         self.db.get_tokens().await
     }
 
+    /// Read trades history.
     pub async fn trades_since(
         &self,
         mint_acc: &str,
@@ -46,6 +50,8 @@ impl Storage {
             .await
     }
 
+    /// Read last trade of the token with given resolution.
+    /// If not found in cache, try to read from DB.
     pub async fn last_trade(
         &self,
         mint_acc: &str,
@@ -59,6 +65,8 @@ impl Storage {
         self.db.last_trade(mint_acc, resolution).await
     }
 
+    /// Insert new trade.
+    /// Try to insert into cache and DB.
     pub async fn insert_trade(
         &self,
         timestamps: &[DateTime<Utc>],
@@ -78,19 +86,19 @@ impl Storage {
         }
 
         Ok(())
-
-        // self.db.insert_trade(timestamps, info).await
     }
 
+    /// Get token metadata.
     pub async fn get_token_metadata(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata> {
-        self.db.get_token_metadata(mint_acc).await
+        self.db.get_token(mint_acc).await
     }
 
+    /// Insert token metadata.
     pub async fn insert_token_metadata(
         &self,
         mint_acc: String,
         metadata: Option<TokenMetadata>,
     ) -> anyhow::Result<()> {
-        self.db.insert_token_metadata(mint_acc, metadata).await
+        self.db.insert_token(mint_acc, metadata).await
     }
 }

@@ -4,7 +4,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use db::Db;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -50,22 +50,25 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Failed to load .env file: {e}");
     };
 
+    // Init db connection.
     let conn_str = std::env::var("POSTGRES_CONN_STR")?;
     let db = Db::new(conn_str).await?;
     if let Err(e) = db.init().await {
-        // This may happen if db and tables already exist.
         tracing::info!("Failed to apply migrations: {e}");
     } else {
         tracing::info!("Migrations applied.");
     };
 
+    // Init redis connection.
     let conn_str = std::env::var("REDIS_CONN_STR")?;
     let cache = Cache::new(&conn_str).await?;
 
     let storage = Storage::new(db, cache).await;
 
+    // Channel to push events from pumpfun to PumpHandler.
     let (tx, rx) = mpsc::channel(1024);
 
+    // Start indexer and event handler.
     let indexer = Indexer::new()?;
     let _subscription = indexer.subscribe(tx).await?;
     tokio::spawn(PumpHandler::run(storage.clone(), rx));
@@ -75,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         _indexer: indexer,
     });
 
+    // CORS are not required for test task.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -105,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Get list of tokens request handler.
 async fn get_tokens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let tokens_result = state.storage.get_tokens().await;
 
@@ -117,6 +122,7 @@ async fn get_tokens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+/// Chart params for a WebSocket request handler.
 #[derive(Deserialize, Debug)]
 struct ChartWsPathParams {
     token: String,
@@ -137,15 +143,20 @@ async fn chart_data_ws(
     })
 }
 
+/// History point for a chart.
 const POINTS_PER_CHART: usize = 100;
+
+/// Refresh interval for a WebSocket connection.
 const PRICE_WS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
+/// WebSocket connection handler.
 async fn handle_websocket(
     token: String,
     resolution: Resolution,
     mut socket: WebSocket,
     state: Arc<AppState>,
 ) -> anyhow::Result<()> {
+    // Get history data at the start.
     let to_timestamp = Utc::now();
     let step = Duration::from_secs(resolution.to_seconds());
     let from_timestamp = resolution.align_datetime(
@@ -166,18 +177,19 @@ async fn handle_websocket(
         socket.send(Message::Text(json_price.into())).await?;
     }
 
+    // Send last trade data to the client periodically.
     loop {
         tokio::time::sleep(PRICE_WS_REFRESH_INTERVAL).await;
 
         let current_timestamp = resolution.align_datetime(Utc::now());
-        let (last_db_ts, last_db_candle) =
-            match state.storage.last_trade(&token, resolution).await {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::info!("Failed to read last price: {e}.");
-                    Default::default()
-                }
-            };
+        let (last_db_ts, last_db_candle) = match state.storage.last_trade(&token, resolution).await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::info!("Failed to read last price: {e}.");
+                Default::default()
+            }
+        };
 
         let candle = if current_timestamp >= last_db_ts && current_timestamp < last_db_ts + step {
             last_db_candle
@@ -201,6 +213,7 @@ async fn handle_websocket(
     }
 }
 
+// Fill gaps in trade events.
 fn interpolate_candles(
     mut from_timestamp: DateTime<Utc>,
     to_timestamp: DateTime<Utc>,
@@ -241,21 +254,4 @@ fn interpolate_candles(
     }
 
     prices
-}
-
-/// Price data.
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
-struct Price {
-    /// BTC info.
-    pub bitcoin: PriceInfo,
-}
-
-/// USD value.
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PriceInfo {
-    /// Price value.
-    pub usd: f64,
-
-    /// Last update unix timestamp.
-    pub last_updated_at: u64,
 }

@@ -10,13 +10,21 @@ services:
     ports:
       - 5432:5432
 
+  cache:
+    image: redis
+    restart: always
+    ports:
+      - 6379:6379
+
   pumpfun_index:
     build:
       dockerfile: Dockerfile
       context: .
       args:
         POSTGRES_CONN_STR: postgres://postgres:example@db:5432/pumpfun_indexer
+        REDIS_CONN_STR: redis://cache:6379
     ports:
       - 33987:33987
     depends_on:
       - db
+      - cache

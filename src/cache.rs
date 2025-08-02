@@ -12,9 +12,12 @@ pub struct Cache {
 }
 
 const MILLIS_IN_DAY: u64 = 24 * 60 * 60 * 1000;
+
+/// Cache retention period.
 pub const RETENTION_PERIOD: Duration = Duration::from_millis(MILLIS_IN_DAY);
 
 impl Cache {
+    /// Create new cache instance.
     pub async fn new(conn_str: &str) -> anyhow::Result<Self> {
         let redis = redis::Client::open(conn_str)?;
         let mut connection = redis.get_multiplexed_async_connection().await?;
@@ -28,6 +31,7 @@ impl Cache {
         Ok(Self { redis })
     }
 
+    /// Insert trade event into cache.
     pub async fn insert_trade(
         &self,
         timestamps: &[DateTime<Utc>],
@@ -59,6 +63,7 @@ impl Cache {
         Ok(())
     }
 
+    /// Read last trade event from cache.
     pub async fn last_trade(
         &self,
         mint: &str,
@@ -92,6 +97,7 @@ impl Cache {
         Ok((datetime, candle))
     }
 
+    /// Read trades history from cache.
     pub async fn trades_since(
         &self,
         mint_acc: &str,
@@ -131,6 +137,7 @@ impl Cache {
         Ok(trades)
     }
 
+    /// Name of the time series for given parameters.
     fn ts_name(mint: &str, resolution: Resolution, mode: &str) -> String {
         format!("trade_{}_{}_{}", mint, resolution, mode)
     }

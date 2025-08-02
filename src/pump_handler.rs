@@ -11,9 +11,12 @@ use tokio::sync::mpsc::Receiver;
 use crate::model::{IndexedPumpfunEvent, Resolution, TokenMetadata, TradeInfo};
 use crate::storage::Storage;
 
+/// Pumpfun event processor.
+#[derive(Debug)]
 pub struct PumpHandler;
 
 impl PumpHandler {
+    /// Run event processing task.
     pub async fn run(storage: Storage, mut pumpfun_ops_sender: Receiver<IndexedPumpfunEvent>) {
         while let Some(event) = pumpfun_ops_sender.recv().await {
             tracing::debug!("Received event");
@@ -29,9 +32,11 @@ impl PumpHandler {
         tracing::error!("Pumpfun handler exited");
     }
 
+    /// Handle pumpfun event.
+    /// If token first met in trade/create event, it will be inserted into db with metadata.
     async fn handle_event(idx_event: IndexedPumpfunEvent, storage: &Storage) -> anyhow::Result<()> {
         let result = match idx_event.event {
-            PumpFunEvent::Create(create) => Self::handle_create(storage, create).await, // todo!
+            PumpFunEvent::Create(create) => Self::handle_create(storage, create).await,
             PumpFunEvent::Trade(trade) => Self::handle_trade(storage, trade).await,
             _ => Ok(()),
         };
@@ -39,6 +44,7 @@ impl PumpHandler {
         result
     }
 
+    /// Handle create event.
     async fn handle_create(storage: &Storage, create: CreateEvent) -> anyhow::Result<()> {
         let metadata = Self::query_token_metadata(create.mint)
             .await
@@ -52,11 +58,12 @@ impl PumpHandler {
         Ok(())
     }
 
+    /// Handle trade event.
     async fn handle_trade(storage: &Storage, trade: TradeEvent) -> anyhow::Result<()> {
         let times = Resolution::all()
             .iter()
             .map(|res| {
-                // bind time to timestamp
+                // bind time to resolution
                 let timestamp_millis = trade.timestamp as u64 / res.to_seconds() * res.to_millis();
                 DateTime::from_timestamp_millis(timestamp_millis as _).expect("correct datetime")
             })
@@ -88,6 +95,7 @@ impl PumpHandler {
         Ok(())
     }
 
+    /// Query token metadata.
     async fn query_token_metadata(mint: Pubkey) -> anyhow::Result<TokenMetadata> {
         let metadata_pda = PumpFun::get_metadata_pda(&mint);
         let resp =
