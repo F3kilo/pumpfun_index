@@ -5,7 +5,6 @@ use sqlx::types::chrono::{NaiveDateTime, Utc};
 use sqlx::{PgPool, Row, migrate::Migrator, types::chrono::DateTime};
 
 use crate::model::{Candle, Resolution, TokenMetadata, TradeInfo};
-use crate::pump_handler::CandlesStorage;
 
 static MIGRATOR: Migrator = sqlx::migrate!("pg/migrations");
 
@@ -34,31 +33,22 @@ impl Db {
 
         Ok(rows
             .iter()
-            .map(|row| (dbg!(row).get(0), parse_metadata_row(row, 1)))
+            .map(|row| (row.get(0), parse_metadata_row(row, 1)))
             .collect())
     }
 
-    pub async fn trades_since_with_one_previous(
+    pub async fn trades_since(
         &self,
-        mint_acc: String,
+        mint_acc: &str,
         timestamp: DateTime<Utc>,
         resolution: Resolution,
     ) -> anyhow::Result<BTreeMap<DateTime<Utc>, Candle>> {
         let rows = sqlx::query(
-            "(
+            "
             SELECT datetime, open_price, close_price, high_price, low_price, volume 
             FROM trades 
             WHERE datetime >= $1 AND resol = $2 AND mint_acc = $3
-        )
-        UNION ALL
-        (
-            SELECT datetime, open_price, close_price, high_price, low_price, volume 
-            FROM trades 
-            WHERE datetime < $1 AND resol = $2 AND mint_acc = $3
-            ORDER BY datetime DESC
-            LIMIT 1
-        )
-        ORDER BY datetime",
+            ORDER BY datetime",
         )
         .bind(timestamp)
         .bind(resolution)
@@ -92,7 +82,7 @@ impl Db {
 
     pub async fn last_trade(
         &self,
-        mint_acc: String,
+        mint_acc: &str,
         resolution: Resolution,
     ) -> anyhow::Result<(DateTime<Utc>, Candle)> {
         let row = sqlx::query(
@@ -126,10 +116,8 @@ impl Db {
 
         Ok((datetime, candle))
     }
-}
 
-impl CandlesStorage for Db {
-    async fn insert_trade(
+    pub async fn insert_trade(
         &self,
         timestamps: &[DateTime<Utc>],
         info: TradeInfo,
@@ -151,6 +139,13 @@ impl CandlesStorage for Db {
         let volume: Vec<_> = (0..timestamps.len())
             .map(|_| info.token_amount as f64)
             .collect();
+
+        // if info.mint_acc == "EBcZRw5xEMyrxnFeM4hAccTnjR7WpxqwpC2rLcCNbtXV" {
+        //     dbg!(timestamps, &info, price);
+
+        //     let previous = self.last_trade(&info.mint_acc, Resolution::M1).await;
+        //     dbg!(previous);
+        // }
 
         sqlx::query(
             "INSERT INTO trades 
@@ -194,10 +189,15 @@ impl CandlesStorage for Db {
         .execute(&self.pool)
         .await?;
 
+        // if info.mint_acc == "EBcZRw5xEMyrxnFeM4hAccTnjR7WpxqwpC2rLcCNbtXV" {
+        //     let new = self.last_trade(&info.mint_acc, Resolution::M1).await;
+        //     dbg!(new);
+        // }
+
         Ok(())
     }
 
-    async fn insert_token_metadata(
+    pub async fn insert_token_metadata(
         &self,
         mint_acc: String,
         metadata: Option<TokenMetadata>,
@@ -223,8 +223,9 @@ impl CandlesStorage for Db {
         Ok(())
     }
 
-    async fn get_token_metadata(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata> {
+    pub async fn get_token_metadata(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata> {
         let row = sqlx::query("SELECT name, symbol, uri FROM token WHERE mint = $1")
+            .bind(mint_acc)
             .fetch_optional(&self.pool)
             .await?;
 

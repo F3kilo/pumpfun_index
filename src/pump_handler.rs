@@ -5,53 +5,41 @@ use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_commitment_config::CommitmentConfig;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_types::config::RpcAccountInfoConfig;
-use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::types::chrono::DateTime;
 use tokio::sync::mpsc::Receiver;
 
-use crate::model::{Resolution, TokenMetadata, TradeInfo};
-
-pub trait CandlesStorage {
-    async fn insert_trade(
-        &self,
-        timestamps: &[DateTime<Utc>],
-        info: TradeInfo,
-    ) -> anyhow::Result<()>;
-
-    async fn get_token_metadata(&self, mint_acc: &str) -> anyhow::Result<TokenMetadata>;
-
-    async fn insert_token_metadata(
-        &self,
-        mint_acc: String,
-        metadata: Option<TokenMetadata>,
-    ) -> anyhow::Result<()>;
-}
+use crate::model::{IndexedPumpfunEvent, Resolution, TokenMetadata, TradeInfo};
+use crate::storage::Storage;
 
 pub struct PumpHandler;
 
 impl PumpHandler {
-    pub async fn run(storage: impl CandlesStorage, mut pumpfun_ops_sender: Receiver<PumpFunEvent>) {
+    pub async fn run(storage: Storage, mut pumpfun_ops_sender: Receiver<IndexedPumpfunEvent>) {
         while let Some(event) = pumpfun_ops_sender.recv().await {
-            if let Err(e) = Self::handle_event(event, &storage).await {
-                tracing::warn!("Failed to handle event: {e}");
-            }
+            tracing::debug!("Received event");
+
+            let storage = storage.clone();
+            tokio::spawn(async move {
+                if let Err(e) = Self::handle_event(event, &storage).await {
+                    tracing::warn!("Failed to handle event: {e}");
+                }
+            });
         }
+
+        tracing::error!("Pumpfun handler exited");
     }
 
-    async fn handle_event(
-        event: PumpFunEvent,
-        storage: &impl CandlesStorage,
-    ) -> anyhow::Result<()> {
-        match event {
+    async fn handle_event(idx_event: IndexedPumpfunEvent, storage: &Storage) -> anyhow::Result<()> {
+        let result = match idx_event.event {
             PumpFunEvent::Create(create) => Self::handle_create(storage, create).await, // todo!
             PumpFunEvent::Trade(trade) => Self::handle_trade(storage, trade).await,
             _ => Ok(()),
-        }
+        };
+        tracing::debug!("Handled event: {}", idx_event.index);
+        result
     }
 
-    async fn handle_create(
-        storage: &impl CandlesStorage,
-        create: CreateEvent,
-    ) -> anyhow::Result<()> {
+    async fn handle_create(storage: &Storage, create: CreateEvent) -> anyhow::Result<()> {
         let metadata = Self::query_token_metadata(create.mint)
             .await
             .inspect_err(|e| tracing::warn!("Failed to query token metadata: {e}"))
@@ -64,7 +52,7 @@ impl PumpHandler {
         Ok(())
     }
 
-    async fn handle_trade(storage: &impl CandlesStorage, trade: TradeEvent) -> anyhow::Result<()> {
+    async fn handle_trade(storage: &Storage, trade: TradeEvent) -> anyhow::Result<()> {
         let times = Resolution::all()
             .iter()
             .map(|res| {

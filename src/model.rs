@@ -1,4 +1,7 @@
+use std::fmt;
+
 use borsh::{BorshDeserialize, BorshSerialize};
+use pumpfun::common::stream::PumpFunEvent;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
 
@@ -20,6 +23,19 @@ pub enum Resolution {
     M15,
     H1,
     D1,
+}
+
+impl fmt::Display for Resolution {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Resolution::S1 => write!(f, "S1"),
+            Resolution::M1 => write!(f, "M1"),
+            Resolution::M5 => write!(f, "M5"),
+            Resolution::M15 => write!(f, "M15"),
+            Resolution::H1 => write!(f, "H1"),
+            Resolution::D1 => write!(f, "D1"),
+        }
+    }
 }
 
 impl Resolution {
@@ -55,7 +71,7 @@ impl Resolution {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TradeInfo {
     pub mint_acc: String,
     pub sol_amount: u64,
@@ -73,4 +89,10 @@ pub struct TokenMetadata {
     pub name: String,
     pub symbol: String,
     pub uri: String,
+}
+
+#[derive(Debug)]
+pub struct IndexedPumpfunEvent {
+    pub index: u64,
+    pub event: PumpFunEvent,
 }

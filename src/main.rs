@@ -16,19 +16,22 @@ use tower_http::trace::DefaultMakeSpan;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use crate::cache::Cache;
 use crate::indexer::Indexer;
 use crate::model::{Candle, Resolution, TradeOhlcv};
 use crate::pump_handler::PumpHandler;
+use crate::storage::Storage;
 
 mod cache;
 mod db;
 mod indexer;
 mod model;
 mod pump_handler;
+mod storage;
 
 /// State shared between app clients.
 struct AppState {
-    db: Db,
+    storage: Storage,
     _indexer: Indexer,
 }
 
@@ -56,14 +59,19 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Migrations applied.");
     };
 
+    let conn_str = std::env::var("REDIS_CONN_STR")?;
+    let cache = Cache::new(&conn_str).await?;
+
+    let storage = Storage::new(db, cache).await;
+
     let (tx, rx) = mpsc::channel(1024);
 
     let indexer = Indexer::new()?;
     let _subscription = indexer.subscribe(tx).await?;
-    tokio::spawn(PumpHandler::run(db.clone(), rx));
+    tokio::spawn(PumpHandler::run(storage.clone(), rx));
 
     let state = Arc::new(AppState {
-        db,
+        storage,
         _indexer: indexer,
     });
 
@@ -98,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn get_tokens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let tokens_result = state.db.get_tokens().await;
+    let tokens_result = state.storage.get_tokens().await;
 
     match tokens_result {
         Ok(tokens) => Json(tokens).into_response(),
@@ -145,8 +153,8 @@ async fn handle_websocket(
     );
 
     let db_candles = state
-        .db
-        .trades_since_with_one_previous(token.clone(), from_timestamp, resolution)
+        .storage
+        .trades_since(&token, from_timestamp, resolution)
         .await
         .inspect_err(|e| tracing::info!("Failed to read prices history: {e}."))
         .unwrap_or_default();
@@ -163,7 +171,7 @@ async fn handle_websocket(
 
         let current_timestamp = resolution.align_datetime(Utc::now());
         let (last_db_ts, last_db_candle) =
-            match state.db.last_trade(token.clone(), resolution).await {
+            match state.storage.last_trade(&token, resolution).await {
                 Ok(p) => p,
                 Err(e) => {
                     tracing::info!("Failed to read last price: {e}.");

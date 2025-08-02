@@ -6,6 +6,7 @@ var ohlcSeries = chart.plot(0).ohlc(mapping);
 
 var socket;
 var token;
+var token_name;
 
 var resolutionSelector = document.getElementById("resolution-select");
 resolutionSelector.onchange = function () {
@@ -38,6 +39,7 @@ fetch("http://localhost:33987/tokens")
 
       li.onclick = function () {
         token = this.id;
+        token_name = this.textContent;
         drawChart();
       }
       document.getElementById("tokens").appendChild(li);
@@ -55,7 +57,7 @@ function drawChart() {
   document.getElementById("myChart").hidden = false;
 
   ohlcSeries.name(token);
-  chart.title(token + " chart");
+  chart.title(token_name + " | " + token);
 
   var resolutionSelector = document.getElementById("resolution-select");
   const resolution = resolutionSelector.options[resolutionSelector.selectedIndex].value;
