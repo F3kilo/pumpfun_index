@@ -1,6 +1,8 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use sqlx::types::chrono::{DateTime, Utc};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Candle {
     pub open: f64,
     pub close: f64,
@@ -9,7 +11,7 @@ pub struct Candle {
     pub volume: f64,
 }
 
-#[derive(Debug, Clone, Copy, sqlx::Type)]
+#[derive(Debug, Clone, Copy, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "resolution")]
 pub enum Resolution {
     S1,
@@ -46,6 +48,11 @@ impl Resolution {
             Resolution::D1,
         ]
     }
+
+    pub fn align_datetime(&self, timestamp: DateTime<Utc>) -> DateTime<Utc> {
+        let ts_millis = timestamp.timestamp_millis() as u64 / self.to_millis() * self.to_millis();
+        DateTime::from_timestamp_millis(ts_millis as i64).expect("correct datetime")
+    }
 }
 
 #[derive(Debug)]
@@ -55,8 +62,15 @@ pub struct TradeInfo {
     pub token_amount: u64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct TradeOhlcv {
     pub timestamp: u64,
     pub candle: Candle,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize)]
+pub struct TokenMetadata {
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
 }

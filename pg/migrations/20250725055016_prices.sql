@@ -4,7 +4,10 @@ CREATE TYPE resolution AS ENUM
 ('S1', 'M1', 'M5', 'M15', 'H1', 'D1');
 
 CREATE TABLE token (
-    mint VARCHAR PRIMARY KEY NOT NULL
+    mint VARCHAR PRIMARY KEY NOT NULL,
+    name VARCHAR,
+    symbol VARCHAR,
+    uri VARCHAR
 );
 
 CREATE TABLE trades

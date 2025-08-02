@@ -5,6 +5,12 @@ var mapping = dataTable.mapAs({ open: "open", high: "high", low: "low", close: "
 var ohlcSeries = chart.plot(0).ohlc(mapping);
 
 var socket;
+var token;
+
+var resolutionSelector = document.getElementById("resolution-select");
+resolutionSelector.onchange = function () {
+  drawChart();
+}
 
 fetch("http://localhost:33987/tokens")
   .then((response) => {
@@ -17,40 +23,43 @@ fetch("http://localhost:33987/tokens")
   .then((data) => {
     for (var i = 0; i < data.length; i++) {
       let li = document.createElement('li');
-      li.textContent = data[i];
+      var text = data[i][0];
+
+      if (data[i][1].symbol != 'NAN') {
+        text = data[i][1].symbol;
+      }
+
+      if (data[i][1].name != 'unknown') {
+        text = text + " | " + data[i][1].name;
+      }
+
+      li.textContent = text;
+      li.id = data[i][0];
+
       li.onclick = function () {
-        drawChart(this.textContent);
+        token = this.id;
+        drawChart();
       }
       document.getElementById("tokens").appendChild(li);
     }
   })
   .catch((error) => console.error("Fetch error:", error));
 
-function drawChart(token) {
+function drawChart() {
   if (socket != null) {
     socket.close();
   }
 
   console.log(token);
-  document.getElementById("myChart").hidden = false;
 
-  // const data = [
-  //   { "x": "2015-12-25", "open": 512.53, "high": 514.88, "low": 505.69, "close": 507.34 },
-  //   { "x": "2015-12-26", "open": 511.83, "high": 514.98, "low": 505.59, "close": 506.23 },
-  //   { "x": "2015-12-27", "open": 511.22, "high": 515.30, "low": 505.49, "close": 506.47 },
-  //   { "x": "2015-12-28", "open": 510.35, "high": 515.72, "low": 505.23, "close": 505.80 },
-  //   { "x": "2015-12-29", "open": 510.53, "high": 515.86, "low": 505.38, "close": 508.25 },
-  //   { "x": "2015-12-30", "open": 511.43, "high": 515.98, "low": 505.66, "close": 507.45 },
-  //   { "x": "2015-12-31", "open": 511.50, "high": 515.33, "low": 505.99, "close": 507.98 },
-  //   { "x": "2016-01-01", "open": 511.32, "high": 514.29, "low": 505.99, "close": 506.37 },
-  //   { "x": "2016-01-02", "open": 511.70, "high": 514.87, "low": 506.18, "close": 506.75 }
-  // ];
-  // dataTable.addData(data);
+  document.getElementById("myChart").hidden = false;
 
   ohlcSeries.name(token);
   chart.title(token + " chart");
 
-  socket = new WebSocket("ws://localhost:33987/chart_data_ws/" + token);
+  var resolutionSelector = document.getElementById("resolution-select");
+  const resolution = resolutionSelector.options[resolutionSelector.selectedIndex].value;
+  socket = new WebSocket("ws://localhost:33987/chart_data_ws/" + token + "/" + resolution);
 
   dataTable.remove();
 

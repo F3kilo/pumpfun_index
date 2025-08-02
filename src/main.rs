@@ -4,21 +4,20 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use db::Db;
-use pumpfun::common::stream::Subscription;
 use serde::{Deserialize, Serialize};
 use sqlx::types::chrono::{DateTime, Utc};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
-use tower::ServiceExt;
+use tokio::sync::mpsc;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 use tower_http::trace::DefaultMakeSpan;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::fmt::format;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::indexer::Indexer;
+use crate::model::{Candle, Resolution, TradeOhlcv};
 use crate::pump_handler::PumpHandler;
 
 mod cache;
@@ -30,7 +29,7 @@ mod pump_handler;
 /// State shared between app clients.
 struct AppState {
     db: Db,
-    indexer: Indexer,
+    _indexer: Indexer,
 }
 
 #[tokio::main]
@@ -63,7 +62,10 @@ async fn main() -> anyhow::Result<()> {
     let _subscription = indexer.subscribe(tx).await?;
     tokio::spawn(PumpHandler::run(db.clone(), rx));
 
-    let state = Arc::new(AppState { db, indexer });
+    let state = Arc::new(AppState {
+        db,
+        _indexer: indexer,
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -73,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     let serve_dir = ServeDir::new("assets");
 
     let router = Router::new()
-        .route("/chart_data_ws/{token}", get(chart_data_ws))
+        .route("/chart_data_ws/{token}/{resolution}", get(chart_data_ws))
         .route("/tokens", get(get_tokens))
         .nest_service("/assets", serve_dir.clone())
         .fallback_service(serve_dir)
@@ -107,73 +109,130 @@ async fn get_tokens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+#[derive(Deserialize, Debug)]
+struct ChartWsPathParams {
+    token: String,
+    resolution: Resolution,
+}
+
 /// Upgrade HTTP connection into WebSocket.
 async fn chart_data_ws(
-    Path(token): Path<String>,
+    Path(path): Path<ChartWsPathParams>,
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| async {
-        let result = handle_websocket(token, socket, state).await;
+    ws.on_upgrade(move |socket| async move {
+        let result = handle_websocket(path.token, path.resolution, socket, state).await;
         if let Err(e) = result {
             tracing::warn!("WS connection failure: {e}.");
         }
     })
 }
 
+const POINTS_PER_CHART: usize = 100;
+const PRICE_WS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
 async fn handle_websocket(
     token: String,
+    resolution: Resolution,
     mut socket: WebSocket,
-    mut state: Arc<AppState>,
+    state: Arc<AppState>,
 ) -> anyhow::Result<()> {
-    let mut last_timestamp = Utc::now();
-    let timestamp = last_timestamp - Duration::from_secs(1000);
-    let prices = match state
+    let to_timestamp = Utc::now();
+    let step = Duration::from_secs(resolution.to_seconds());
+    let from_timestamp = resolution.align_datetime(
+        to_timestamp - Duration::from_secs(POINTS_PER_CHART as u64 * resolution.to_seconds()),
+    );
+
+    let db_candles = state
         .db
-        .trades_since(token.clone(), timestamp, model::Resolution::M1)
+        .trades_since_with_one_previous(token.clone(), from_timestamp, resolution)
         .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::info!("Failed to read prices history: {e}.");
-            vec![]
-        }
-    };
+        .inspect_err(|e| tracing::info!("Failed to read prices history: {e}."))
+        .unwrap_or_default();
 
-    if let Some(last_price) = prices.last() {
-        last_timestamp = DateTime::from_timestamp_millis(last_price.timestamp as i64 * 1000)
-            .expect("correct datetime");
-    }
+    let candles = interpolate_candles(from_timestamp, to_timestamp, step, db_candles);
 
-    for price in prices {
+    for price in candles {
         let json_price = sqlx::types::Json::from(price).encode_to_string()?;
         socket.send(Message::Text(json_price.into())).await?;
     }
 
     loop {
-        let prices = match state
-            .db
-            .trades_since(token.clone(), last_timestamp, model::Resolution::M1)
-            .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::info!("Failed to read prices history: {e}.");
-                vec![]
+        tokio::time::sleep(PRICE_WS_REFRESH_INTERVAL).await;
+
+        let current_timestamp = resolution.align_datetime(Utc::now());
+        let (last_db_ts, last_db_candle) =
+            match state.db.last_trade(token.clone(), resolution).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::info!("Failed to read last price: {e}.");
+                    Default::default()
+                }
+            };
+
+        let candle = if current_timestamp >= last_db_ts && current_timestamp < last_db_ts + step {
+            last_db_candle
+        } else {
+            Candle {
+                open: last_db_candle.close,
+                close: last_db_candle.close,
+                high: last_db_candle.close,
+                low: last_db_candle.close,
+                volume: 0.0,
             }
         };
 
-        if let Some(last_price) = prices.last() {
-            last_timestamp = DateTime::from_timestamp_millis(last_price.timestamp as i64 * 1000)
-                .expect("correct datetime");
-        }
+        let trade = TradeOhlcv {
+            timestamp: current_timestamp.timestamp_millis() as u64 / 1000,
+            candle,
+        };
 
-        for price in prices {
-            let json_price = sqlx::types::Json::from(price).encode_to_string()?;
-            socket.send(Message::Text(json_price.into())).await?;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let json_trade = sqlx::types::Json::from(trade).encode_to_string()?;
+        socket.send(Message::Text(json_trade.into())).await?;
     }
+}
+
+fn interpolate_candles(
+    mut from_timestamp: DateTime<Utc>,
+    to_timestamp: DateTime<Utc>,
+    step: Duration,
+    db_candles: BTreeMap<DateTime<Utc>, Candle>,
+) -> Vec<TradeOhlcv> {
+    let mut prices = Vec::new();
+    while from_timestamp <= to_timestamp {
+        let Some((db_timestamp, db_candle)) = db_candles
+            .range(..=from_timestamp)
+            .next_back()
+            .map(|(ts, canlde)| (*ts, *canlde))
+        else {
+            from_timestamp += step;
+            continue;
+        };
+
+        let candle = if from_timestamp >= db_timestamp && from_timestamp < db_timestamp + step {
+            "db";
+            db_candle
+        } else {
+            "close";
+            Candle {
+                open: db_candle.close,
+                close: db_candle.close,
+                high: db_candle.close,
+                low: db_candle.close,
+                volume: 0.0,
+            }
+        };
+
+        prices.push(TradeOhlcv {
+            timestamp: from_timestamp.timestamp_millis() as u64 / 1000,
+            candle,
+        });
+
+        from_timestamp += step;
+    }
+
+    prices
 }
 
 /// Price data.

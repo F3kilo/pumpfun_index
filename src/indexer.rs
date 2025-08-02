@@ -16,7 +16,7 @@ impl Indexer {
         Ok(Self {
             client: PumpFun::new(
                 Arc::new(Keypair::new()),
-                Cluster::mainnet(CommitmentConfig::finalized(), PriorityFee::default()),
+                Cluster::mainnet(CommitmentConfig::confirmed(), PriorityFee::default()),
             ),
         })
     }
@@ -28,7 +28,7 @@ impl Indexer {
         let subscription = self
             .client
             .subscribe(
-                Some(CommitmentConfig::finalized()),
+                Some(CommitmentConfig::confirmed()),
                 move |_, mb_event, mb_error, _| {
                     tracing::trace!("Received event: {mb_event:?}");
 
