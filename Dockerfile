@@ -1,8 +1,4 @@
-FROM rust:1.88 AS base
-
-RUN cargo install cargo-chef
-
-FROM base AS planner
+FROM rust:1.88 AS builder
 
 WORKDIR /usr/src/app
 
@@ -12,21 +8,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src src
 COPY assets assets
 COPY pg pg
-
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM base AS builder
-
-WORKDIR /usr/src/app
-
-COPY Cargo.toml Cargo.lock ./
-COPY src src
-COPY assets assets
-COPY pg pg
-
-COPY --from=planner /usr/src/app/recipe.json recipe.json
-
-RUN cargo chef cook --target x86_64-unknown-linux-gnu --release --recipe-path recipe.json
+RUN cargo build --target x86_64-unknown-linux-gnu --release
 
 FROM bitnami/minideb:bookworm
 
@@ -41,6 +23,9 @@ COPY --from=builder /usr/src/app/pg pg
 
 ARG POSTGRES_CONN_STR
 ENV POSTGRES_CONN_STR=$POSTGRES_CONN_STR
+
+ARG REDIS_CONN_STR
+ENV REDIS_CONN_STR=$REDIS_CONN_STR
 
 CMD ["pumpfun_indexer"]
 

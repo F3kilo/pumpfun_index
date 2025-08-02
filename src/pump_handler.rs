@@ -19,8 +19,6 @@ impl PumpHandler {
     /// Run event processing task.
     pub async fn run(storage: Storage, mut pumpfun_ops_sender: Receiver<IndexedPumpfunEvent>) {
         while let Some(event) = pumpfun_ops_sender.recv().await {
-            tracing::debug!("Received event");
-
             let storage = storage.clone();
             tokio::spawn(async move {
                 if let Err(e) = Self::handle_event(event, &storage).await {
@@ -40,7 +38,6 @@ impl PumpHandler {
             PumpFunEvent::Trade(trade) => Self::handle_trade(storage, trade).await,
             _ => Ok(()),
         };
-        tracing::debug!("Handled event: {}", idx_event.index);
         result
     }
 

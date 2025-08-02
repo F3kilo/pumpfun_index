@@ -104,6 +104,6 @@ pub struct TokenMetadata {
 /// Index may be used for debugging.
 #[derive(Debug)]
 pub struct IndexedPumpfunEvent {
-    pub index: u64,
+    pub _index: u64,
     pub event: PumpFunEvent,
 }

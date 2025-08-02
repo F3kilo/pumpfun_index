@@ -37,6 +37,8 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    println!("Starting...");
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -50,6 +52,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Failed to load .env file: {e}");
     };
 
+    tracing::info!("Tracing initialized.");
+
     // Init db connection.
     let conn_str = std::env::var("POSTGRES_CONN_STR")?;
     let db = Db::new(conn_str).await?;
@@ -58,20 +62,26 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing::info!("Migrations applied.");
     };
+    tracing::info!("Db initialized.");
 
     // Init redis connection.
     let conn_str = std::env::var("REDIS_CONN_STR")?;
     let cache = Cache::new(&conn_str).await?;
+    tracing::info!("Cache initialized.");
 
     let storage = Storage::new(db, cache).await;
+    tracing::info!("Storage initialized.");
 
     // Channel to push events from pumpfun to PumpHandler.
     let (tx, rx) = mpsc::channel(1024);
 
     // Start indexer and event handler.
     let indexer = Indexer::new()?;
+    tracing::info!("Indexer initialized.");
+
     let _subscription = indexer.subscribe(tx).await?;
     tokio::spawn(PumpHandler::run(storage.clone(), rx));
+    tracing::info!("PumpHandler initialized.");
 
     let state = Arc::new(AppState {
         storage,
@@ -103,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("failed to init TCP listener");
 
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, router.layer(TraceLayer::new_for_http())).await?;
 
     Ok(())

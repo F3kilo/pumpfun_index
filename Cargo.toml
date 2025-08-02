@@ -21,11 +21,9 @@ solana-pubsub-client = "2.3.6"
 solana-pubkey = "2.4.0"
 solana-rpc-client-types = "2.3.6"
 solana-commitment-config = "2.2.1"
-solana-transaction-status-client-types = "2.3.6"
 pumpfun = { version = "4.3.0", features = ["stream"] }
 solana-keypair = "2.2.3"
 solana-rpc-client = "2.3.6"
 solana-account-decoder-client-types = "2.3.6"
 borsh = "1.5.7"
 redis = { version = "0.32.4", features = ["tokio-comp"] }
-r2d2 = "0.8.10"

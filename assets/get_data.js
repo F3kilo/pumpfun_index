@@ -6,7 +6,10 @@ var ohlcSeries = chart.plot(0).ohlc(mapping);
 
 var socket;
 var token;
-var token_name;
+var tokenName;
+var chartDataLen;
+
+const maxChartDataLen = 100;
 
 var resolutionSelector = document.getElementById("resolution-select");
 resolutionSelector.onchange = function () {
@@ -39,7 +42,7 @@ fetch("http://localhost:33987/tokens")
 
       li.onclick = function () {
         token = this.id;
-        token_name = this.textContent;
+        tokenName = this.textContent;
         drawChart();
       }
       document.getElementById("tokens").appendChild(li);
@@ -57,13 +60,14 @@ function drawChart() {
   document.getElementById("myChart").hidden = false;
 
   ohlcSeries.name(token);
-  chart.title(token_name + " | " + token);
+  chart.title(tokenName + " | " + token);
 
   var resolutionSelector = document.getElementById("resolution-select");
   const resolution = resolutionSelector.options[resolutionSelector.selectedIndex].value;
   socket = new WebSocket("ws://localhost:33987/chart_data_ws/" + token + "/" + resolution);
 
   dataTable.remove();
+  chartDataLen = 0;
 
   socket.onmessage = function (event) {
     var data = JSON.parse(event.data);
@@ -71,7 +75,10 @@ function drawChart() {
     var candle = data.candle;
     const date = new Date(data.timestamp * 1000);
     candle.x = date;
-    dataTable.addData([data.candle]);
+    chartDataLen += 1;
+    
+    var removeData = chartDataLen + 1 > maxChartDataLen;
+    dataTable.addData([data.candle], removeData);
 
     chart.draw();
   };

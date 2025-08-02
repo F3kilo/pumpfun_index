@@ -53,7 +53,7 @@ impl Indexer {
 
                     if let Some(event) = mb_event {
                         let idx = index.fetch_add(1, Ordering::Relaxed);
-                        let idx_event = IndexedPumpfunEvent { index: idx, event };
+                        let idx_event = IndexedPumpfunEvent { _index: idx, event };
 
                         let sender_clone = pumpfun_ops_sender.clone();
                         tokio::spawn(async move {
