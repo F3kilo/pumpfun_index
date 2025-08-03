@@ -29,7 +29,7 @@ impl Indexer {
     /// Subscribe to events.
     /// Captured events will be sent to the given sender.
     /// Returns subscription. It will stop event capture task on drop.
-    pub async fn _subscribe(
+    pub async fn subscribe(
         &self,
         pumpfun_ops_sender: Sender<IndexedPumpfunEvent>,
     ) -> anyhow::Result<Subscription> {
@@ -40,7 +40,7 @@ impl Indexer {
                 Some(CommitmentConfig::confirmed()),
                 move |_, mb_event, mb_error, _| {
                     tracing::trace!("Received event: {mb_event:?}");
-
+                    
                     if let Some(err) = mb_error {
                         let error_str = err.to_string();
                         if error_str.contains("Unknown event:") {

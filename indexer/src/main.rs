@@ -73,13 +73,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Storage initialized.");
 
     // Channel to push events from pumpfun to PumpHandler.
-    let (_tx, rx) = mpsc::channel(1024);
+    let (tx, rx) = mpsc::channel(1024);
 
     // Start indexer and event handler.
     let indexer = Indexer::new()?;
     tracing::info!("Indexer initialized.");
 
-    // let _subscription = indexer.subscribe(tx).await?;
+    let _subscription = indexer.subscribe(tx).await?;
     tokio::spawn(PumpHandler::run(storage.clone(), rx));
     tracing::info!("PumpHandler initialized.");
 
@@ -94,12 +94,12 @@ async fn main() -> anyhow::Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let serve_dir = ServeDir::new("assets");
+    let serve_dir = ServeDir::new("static");
 
     let router = Router::new()
         .route("/chart_data_ws/{token}/{resolution}", get(chart_data_ws))
         .route("/tokens", get(get_tokens))
-        .nest_service("/assets", serve_dir.clone())
+        .nest_service("/static", serve_dir.clone())
         .fallback_service(serve_dir)
         .layer(
             TraceLayer::new_for_http()
