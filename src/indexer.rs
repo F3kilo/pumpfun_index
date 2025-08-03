@@ -12,14 +12,14 @@ use crate::model::IndexedPumpfunEvent;
 
 /// Pumpfun event indexer.
 pub struct Indexer {
-    client: PumpFun,
+    _client: PumpFun,
 }
 
 impl Indexer {
     /// Create new indexer.
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
-            client: PumpFun::new(
+            _client: PumpFun::new(
                 Arc::new(Keypair::new()),
                 Cluster::mainnet(CommitmentConfig::confirmed(), PriorityFee::default()),
             ),
@@ -29,13 +29,13 @@ impl Indexer {
     /// Subscribe to events.
     /// Captured events will be sent to the given sender.
     /// Returns subscription. It will stop event capture task on drop.
-    pub async fn subscribe(
+    pub async fn _subscribe(
         &self,
         pumpfun_ops_sender: Sender<IndexedPumpfunEvent>,
     ) -> anyhow::Result<Subscription> {
         let index = AtomicU64::new(0);
         let subscription = self
-            .client
+            ._client
             .subscribe(
                 Some(CommitmentConfig::confirmed()),
                 move |_, mb_event, mb_error, _| {

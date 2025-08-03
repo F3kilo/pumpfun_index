@@ -73,13 +73,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Storage initialized.");
 
     // Channel to push events from pumpfun to PumpHandler.
-    let (tx, rx) = mpsc::channel(1024);
+    let (_tx, rx) = mpsc::channel(1024);
 
     // Start indexer and event handler.
     let indexer = Indexer::new()?;
     tracing::info!("Indexer initialized.");
 
-    let _subscription = indexer.subscribe(tx).await?;
+    // let _subscription = indexer.subscribe(tx).await?;
     tokio::spawn(PumpHandler::run(storage.clone(), rx));
     tracing::info!("PumpHandler initialized.");
 
