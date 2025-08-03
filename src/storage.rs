@@ -35,7 +35,7 @@ impl Storage {
         if from_timestamp > cache_start {
             match self
                 .cache
-                .trades_since(&mint_acc, from_timestamp, resolution)
+                .trades_since(mint_acc, from_timestamp, resolution)
                 .await
             {
                 Ok(cached) => return Ok(cached),

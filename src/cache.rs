@@ -51,10 +51,10 @@ impl Cache {
 
                 redis::cmd("TS.ADD")
                     .arg(&name)
-                    .arg(&timestamp)
-                    .arg(&price)
+                    .arg(timestamp)
+                    .arg(price)
                     .arg("ON_DUPLICATE")
-                    .arg(&policy)
+                    .arg(policy)
                     .exec_async(&mut connection)
                     .await?;
             }
