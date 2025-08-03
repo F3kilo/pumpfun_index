@@ -181,6 +181,7 @@ async fn handle_websocket(
         .unwrap_or_default();
 
     let candles = interpolate_candles(from_timestamp, to_timestamp, step, db_candles);
+    dbg!(&candles);
 
     for price in candles {
         let json_price = sqlx::types::Json::from(price).encode_to_string()?;

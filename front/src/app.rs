@@ -1,5 +1,6 @@
 use core::fmt;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use egui::scroll_area::ScrollArea;
@@ -13,6 +14,7 @@ pub struct PumpIndexFront {
     tokens: BTreeMap<String, String>,
     selected_token: Option<String>,
     error_msg: String,
+    filter_text: String,
     prices: BTreeMap<DateTime<Utc>, TradeOhlcv>,
     event_tx: Sender<AsyncEvent>,
     event_rx: Receiver<AsyncEvent>,
@@ -32,6 +34,7 @@ impl Default for PumpIndexFront {
             tokens: BTreeMap::default(),
             selected_token: None,
             error_msg: String::new(),
+            filter_text: String::new(),
             prices: BTreeMap::default(),
             event_tx,
             event_rx,
@@ -62,7 +65,8 @@ impl PumpIndexFront {
             token,
             self.prices
                 .iter()
-                .map(|(datetime, trade)| {
+                .enumerate()
+                .map(|(idx, (datetime, trade))| {
                     let color = if trade.candle.open > trade.candle.close {
                         Color32::RED
                     } else {
@@ -76,8 +80,10 @@ impl PumpIndexFront {
                     let median = (quart1 + quart2) / 2.0;
 
                     BoxElem::new(
-                        timestamp as f64,
-                        BoxSpread::new(trade.candle.low, quart1, median, quart2, trade.candle.high),
+                        // timestamp as f64,
+                        idx as f64,
+                        // BoxSpread::new(trade.candle.low, quart1, median, quart2, trade.candle.high),
+                        BoxSpread::new(-2.0, -1.0, 0.0, 1.0, 2.0),
                     )
                     .fill(color)
                     .name(datetime.to_string())
@@ -89,8 +95,8 @@ impl PumpIndexFront {
         Plot::new(name)
             .legend(Legend::default())
             .allow_zoom(true)
-            .allow_drag(false)
-            .allow_scroll(false)
+            .allow_drag(true)
+            .allow_scroll(true)
             .show(ui, |plot_ui| {
                 plot_ui.box_plot(box_plot);
             })
@@ -172,24 +178,34 @@ impl eframe::App for PumpIndexFront {
                 if !self.prices.is_empty() {
                     self.draw_plot(ui);
                 }
+                if !self.error_msg.is_empty() {
+                    ui.label(&self.error_msg);
+                }
 
-                ui.horizontal_wrapped(|ui| {
-                    if !self.error_msg.is_empty() {
-                        ui.label(&self.error_msg);
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    ui.label("Select token");
+                    if ui.button("Refresh").clicked() {
+                        self.refresh_tokens();
                     }
 
                     ui.separator();
 
-                    ui.horizontal(|ui| {
-                        ui.label("Select token");
-                        if ui.button("Refresh").clicked() {
-                            self.refresh_tokens();
-                        }
-                    });
+                    ui.label("Filter");
+                    ui.text_edit_singleline(&mut self.filter_text);
+                });
 
+                ui.horizontal_wrapped(|ui| {
                     ui.separator();
 
-                    for (token_addr, token_name) in &self.tokens {
+                    for (token_addr, token_name) in self.tokens.iter().filter(|(acc, name)| {
+                        if self.filter_text.is_empty() {
+                            true
+                        } else {
+                            name.contains(&self.filter_text) | acc.contains(&self.filter_text)
+                        }
+                    }) {
                         if ui.button(token_name).clicked() {
                             if self.selected_token.as_ref().map(String::as_str) != Some(token_addr)
                             {
@@ -285,27 +301,48 @@ pub struct TradeOhlcv {
 }
 
 async fn listen_price(url: String, tx: Sender<AsyncEvent>) {
-    let options = ewebsock::Options::default();
-    // see documentation for more options
-    let (_sender, receiver) = match ewebsock::connect(url, options) {
+    let (_sender, mut receiver) = match nash_ws::WebSocket::new(&url).await {
         Ok(r) => r,
         Err(e) => {
-            let _ = tx.send(AsyncEvent::Error(format!("Failed to connect: {e}")));
+            let _ = tx.send(AsyncEvent::Error(format!("Failed to connect: {e:?}")));
             return;
         }
     };
 
-    while let Some(ewebsock::WsEvent::Message(ewebsock::WsMessage::Text(text))) =
-        receiver.try_recv()
-    {
-        
+    loop {
+        let Some(received) = receiver.next().await else {
+            let _ = tx.send(AsyncEvent::Error(format!("Nothing received")));
+            continue;
+        };
+
+        let received = match received {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = tx.send(AsyncEvent::Error(format!(
+                    "Failed to receive ws data: {e:?}"
+                )));
+                return;
+            }
+        };
+
+        let text = match received {
+            nash_ws::Message::Text(t) => t,
+            _ => {
+                let _ = tx.send(AsyncEvent::Error(format!("Received non-text message")));
+                continue;
+            }
+        };
+
+        web_sys::console::log_1(&format!("Received text: {text}").into());
+
         let trade = match serde_json::from_str(&text) {
             Ok(r) => r,
             Err(e) => {
                 let _ = tx.send(AsyncEvent::Error(format!("Failed to parse trade: {e}")));
-                return;
+                continue;
             }
         };
+
         let _ = tx.send(AsyncEvent::GotTrade(trade));
     }
 }
