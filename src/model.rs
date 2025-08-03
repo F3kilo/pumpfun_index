@@ -42,7 +42,7 @@ impl fmt::Display for Resolution {
 
 impl Resolution {
     /// Convert resolution to seconds.
-    pub fn to_seconds(&self) -> u64 {
+    pub fn as_seconds(&self) -> u64 {
         match self {
             Resolution::S1 => 1,
             Resolution::M1 => 60,
@@ -54,8 +54,8 @@ impl Resolution {
     }
 
     /// Convert resolution to milliseconds.
-    pub fn to_millis(&self) -> u64 {
-        self.to_seconds() * 1000
+    pub fn as_millis(&self) -> u64 {
+        self.as_seconds() * 1000
     }
 
     /// All available resolutions.
@@ -72,7 +72,7 @@ impl Resolution {
 
     /// Align timestamp to the closest resolution step.
     pub fn align_datetime(&self, timestamp: DateTime<Utc>) -> DateTime<Utc> {
-        let ts_millis = timestamp.timestamp_millis() as u64 / self.to_millis() * self.to_millis();
+        let ts_millis = timestamp.timestamp_millis() as u64 / self.as_millis() * self.as_millis();
         DateTime::from_timestamp_millis(ts_millis as i64).expect("correct datetime")
     }
 }

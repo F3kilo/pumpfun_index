@@ -33,12 +33,11 @@ impl PumpHandler {
     /// Handle pumpfun event.
     /// If token first met in trade/create event, it will be inserted into db with metadata.
     async fn handle_event(idx_event: IndexedPumpfunEvent, storage: &Storage) -> anyhow::Result<()> {
-        let result = match idx_event.event {
+        match idx_event.event {
             PumpFunEvent::Create(create) => Self::handle_create(storage, create).await,
             PumpFunEvent::Trade(trade) => Self::handle_trade(storage, trade).await,
             _ => Ok(()),
-        };
-        result
+        }
     }
 
     /// Handle create event.
@@ -61,7 +60,7 @@ impl PumpHandler {
             .iter()
             .map(|res| {
                 // bind time to resolution
-                let timestamp_millis = trade.timestamp as u64 / res.to_seconds() * res.to_millis();
+                let timestamp_millis = trade.timestamp as u64 / res.as_seconds() * res.as_millis();
                 DateTime::from_timestamp_millis(timestamp_millis as _).expect("correct datetime")
             })
             .collect::<Vec<_>>();

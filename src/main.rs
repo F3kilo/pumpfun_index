@@ -168,9 +168,9 @@ async fn handle_websocket(
 ) -> anyhow::Result<()> {
     // Get history data at the start.
     let to_timestamp = Utc::now();
-    let step = Duration::from_secs(resolution.to_seconds());
+    let step = Duration::from_secs(resolution.as_seconds());
     let from_timestamp = resolution.align_datetime(
-        to_timestamp - Duration::from_secs(POINTS_PER_CHART as u64 * resolution.to_seconds()),
+        to_timestamp - Duration::from_secs(POINTS_PER_CHART as u64 * resolution.as_seconds()),
     );
 
     let db_candles = state
@@ -242,10 +242,8 @@ fn interpolate_candles(
         };
 
         let candle = if from_timestamp >= db_timestamp && from_timestamp < db_timestamp + step {
-            "db";
             db_candle
         } else {
-            "close";
             Candle {
                 open: db_candle.close,
                 close: db_candle.close,
