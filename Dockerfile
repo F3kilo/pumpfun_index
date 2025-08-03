@@ -3,12 +3,25 @@ FROM rust:1.88 AS builder
 WORKDIR /usr/src/app
 
 RUN rustup target add x86_64-unknown-linux-musl
+RUN rustup target add wasm32-unknown-unknown
 
-COPY Cargo.toml Cargo.lock ./
-COPY src src
-COPY assets assets
-COPY pg pg
-RUN cargo build --target x86_64-unknown-linux-gnu --release
+RUN mkdir indexer
+RUN mkdir front
+
+RUN cargo install --locked trunk
+
+COPY indexer/Cargo.toml indexer/Cargo.lock /usr/src/app/indexer/
+COPY indexer/src /usr/src/app/indexer/src
+COPY indexer/pg /usr/src/app/indexer/pg
+
+RUN cd indexer && cargo build --target x86_64-unknown-linux-gnu --release
+
+COPY front/Cargo.toml front/Cargo.lock front/index.html front/rust-toolchain front/Trunk.toml /usr/src/app/front/
+COPY front/assets /usr/src/app/front/assets
+COPY front/src /usr/src/app/front/src
+
+RUN cd front && trunk build --release
+
 
 FROM bitnami/minideb:bookworm
 
