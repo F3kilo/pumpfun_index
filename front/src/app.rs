@@ -1,10 +1,11 @@
 use core::fmt;
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{DateTime, Utc};
 use egui::scroll_area::ScrollArea;
-use egui::{Color32, Response};
+use egui::{Color32, Response, Stroke};
 use egui_plot::{BoxElem, BoxPlot, BoxSpread, Legend, Plot};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -13,11 +14,13 @@ pub struct PumpIndexFront {
     indexer_addr: String,
     tokens: BTreeMap<String, String>,
     selected_token: Option<String>,
+    resolution: Resolution,
     error_msg: String,
     filter_text: String,
     prices: BTreeMap<DateTime<Utc>, TradeOhlcv>,
     event_tx: Sender<AsyncEvent>,
     event_rx: Receiver<AsyncEvent>,
+    token_ws_stop: Arc<AtomicBool>,
 }
 
 enum AsyncEvent {
@@ -33,14 +36,18 @@ impl Default for PumpIndexFront {
             indexer_addr: "localhost:33987".into(),
             tokens: BTreeMap::default(),
             selected_token: None,
+            resolution: Resolution::M1,
             error_msg: String::new(),
             filter_text: String::new(),
             prices: BTreeMap::default(),
             event_tx,
             event_rx,
+            token_ws_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
+
+const MAX_CHART_TICKS: usize = 50;
 
 impl PumpIndexFront {
     /// Called once before the first frame.
@@ -60,33 +67,38 @@ impl PumpIndexFront {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("Unknown token");
+        
+        const DIVIDER: f64 = 100000.0;
+        let divider_with_resolution = self.resolution.as_seconds() as f64 * DIVIDER / 60.0;
 
         let box_plot = BoxPlot::new(
             token,
             self.prices
                 .iter()
-                .enumerate()
-                .map(|(idx, (datetime, trade))| {
+                .map(|(datetime, trade)| {
                     let color = if trade.candle.open > trade.candle.close {
                         Color32::RED
                     } else {
                         Color32::GREEN
                     };
 
-                    let timestamp = datetime.timestamp_millis();
+
+                    let timestamp = datetime.timestamp_millis() as f64 / divider_with_resolution;
 
                     let quart1 = trade.candle.open.min(trade.candle.close);
                     let quart2 = trade.candle.open.max(trade.candle.close);
                     let median = (quart1 + quart2) / 2.0;
 
                     BoxElem::new(
-                        // timestamp as f64,
-                        idx as f64,
-                        // BoxSpread::new(trade.candle.low, quart1, median, quart2, trade.candle.high),
-                        BoxSpread::new(-2.0, -1.0, 0.0, 1.0, 2.0),
+                        timestamp,
+                        // idx as f64,
+                        // BoxSpread::new(-1.0, 1.0, 2.0, 3.0, 4.0),
+                        BoxSpread::new(trade.candle.low, quart1, median, quart2, trade.candle.high),
+                        // BoxSpread::new(-2.0, -1.0, 0.0, 1.0, 2.0),
                     )
-                    .fill(color)
+                    // .fill(color)
                     .name(datetime.to_string())
+                    .stroke(Stroke::new(1.5, color))
                 })
                 .collect(),
         );
@@ -96,7 +108,13 @@ impl PumpIndexFront {
             .legend(Legend::default())
             .allow_zoom(true)
             .allow_drag(true)
-            .allow_scroll(true)
+            .allow_scroll(false)
+            .x_axis_formatter(|mark, _range| {
+                let ts_millis = (mark.value * divider_with_resolution) as i64;
+                let datatime =
+                    DateTime::from_timestamp_millis(ts_millis).expect("correct datetime");
+                datatime.to_string()
+            })
             .show(ui, |plot_ui| {
                 plot_ui.box_plot(box_plot);
             })
@@ -146,6 +164,9 @@ impl eframe::App for PumpIndexFront {
                     let datetime = DateTime::from_timestamp_millis(trade.timestamp as i64 * 1000)
                         .expect("correct datetime");
                     self.prices.insert(datetime, trade);
+                    if self.prices.len() > MAX_CHART_TICKS {
+                        self.prices.pop_first();
+                    }
                 }
                 AsyncEvent::Error(msg) => {
                     self.error_msg = msg;
@@ -170,7 +191,26 @@ impl eframe::App for PumpIndexFront {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Pumpfun tokens indexer");
+            ui.horizontal(|ui| {
+                ui.heading("Pumpfun tokens indexer");
+                if self.selected_token.is_some() {
+                    for resolution in Resolution::all() {
+                        if ui.button(resolution.to_string()).clicked() {
+                            self.prices.clear();
+                            self.token_ws_stop.store(true, Ordering::SeqCst);
+                            self.token_ws_stop = Arc::new(AtomicBool::new(false));
+                            self.resolution = resolution;
+                            start_listen_price(
+                                &self.indexer_addr,
+                                self.selected_token.as_ref().unwrap(),
+                                self.resolution,
+                                self.event_tx.clone(),
+                                self.token_ws_stop.clone(),
+                            );
+                        };
+                    }
+                }
+            });
 
             ui.separator();
 
@@ -203,17 +243,23 @@ impl eframe::App for PumpIndexFront {
                         if self.filter_text.is_empty() {
                             true
                         } else {
-                            name.contains(&self.filter_text) | acc.contains(&self.filter_text)
+                            name.to_lowercase().contains(&self.filter_text)
+                                | acc.to_lowercase().contains(&self.filter_text)
                         }
                     }) {
                         if ui.button(token_name).clicked() {
                             if self.selected_token.as_ref().map(String::as_str) != Some(token_addr)
                             {
+                                self.prices.clear();
+                                self.token_ws_stop.store(true, Ordering::SeqCst);
+                                self.token_ws_stop = Arc::new(AtomicBool::new(false));
+                                self.selected_token = Some(token_addr.to_string());
                                 start_listen_price(
                                     &self.indexer_addr,
                                     token_addr,
-                                    Resolution::M1,
+                                    self.resolution,
                                     self.event_tx.clone(),
+                                    self.token_ws_stop.clone(),
                                 );
                             }
                         };
@@ -250,13 +296,14 @@ fn start_listen_price(
     token_addr: &str,
     resolution: Resolution,
     tx: Sender<AsyncEvent>,
+    cancel_flag: Arc<AtomicBool>,
 ) {
     let url = format!(
         "ws://{}/chart_data_ws/{}/{}",
         indexer_addr, token_addr, resolution
     );
 
-    execute_async(listen_price(url, tx));
+    execute_async(listen_price(url, tx, cancel_flag));
 }
 
 /// Trade events time resolution.
@@ -268,6 +315,31 @@ pub enum Resolution {
     M15,
     H1,
     D1,
+}
+
+impl Resolution {
+    /// All available resolutions.
+    pub fn all() -> [Resolution; 6] {
+        [
+            Resolution::S1,
+            Resolution::M1,
+            Resolution::M5,
+            Resolution::M15,
+            Resolution::H1,
+            Resolution::D1,
+        ]
+    }
+
+    pub fn as_seconds(&self) -> u64 {
+        match self {
+            Resolution::S1 => 1,
+            Resolution::M1 => 60,
+            Resolution::M5 => 300,
+            Resolution::M15 => 900,
+            Resolution::H1 => 3600,
+            Resolution::D1 => 86400,
+        }
+    }
 }
 
 impl fmt::Display for Resolution {
@@ -300,8 +372,8 @@ pub struct TradeOhlcv {
     pub candle: Candle,
 }
 
-async fn listen_price(url: String, tx: Sender<AsyncEvent>) {
-    let (_sender, mut receiver) = match nash_ws::WebSocket::new(&url).await {
+async fn listen_price(url: String, tx: Sender<AsyncEvent>, cancel_flag: Arc<AtomicBool>) {
+    let (mut sender, mut receiver) = match nash_ws::WebSocket::new(&url).await {
         Ok(r) => r,
         Err(e) => {
             let _ = tx.send(AsyncEvent::Error(format!("Failed to connect: {e:?}")));
@@ -342,6 +414,11 @@ async fn listen_price(url: String, tx: Sender<AsyncEvent>) {
                 continue;
             }
         };
+
+        if cancel_flag.load(Ordering::SeqCst) {
+            let _ = sender.send(&nash_ws::Message::Close(None)).await;
+            break;
+        }
 
         let _ = tx.send(AsyncEvent::GotTrade(trade));
     }

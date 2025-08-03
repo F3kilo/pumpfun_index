@@ -4,6 +4,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use db::Db;
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
 use serde::Deserialize;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
@@ -163,10 +164,13 @@ const PRICE_WS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 async fn handle_websocket(
     token: String,
     resolution: Resolution,
-    mut socket: WebSocket,
+    socket: WebSocket,
     state: Arc<AppState>,
 ) -> anyhow::Result<()> {
     // Get history data at the start.
+
+    let (mut tx, mut rx) = socket.split();
+
     let to_timestamp = Utc::now();
     let step = Duration::from_secs(resolution.as_seconds());
     let from_timestamp = resolution.align_datetime(
@@ -181,47 +185,74 @@ async fn handle_websocket(
         .unwrap_or_default();
 
     let candles = interpolate_candles(from_timestamp, to_timestamp, step, db_candles);
-    dbg!(&candles);
 
     for price in candles {
         let json_price = sqlx::types::Json::from(price).encode_to_string()?;
-        socket.send(Message::Text(json_price.into())).await?;
+        tx.send(Message::Text(json_price.into())).await?;
     }
 
     // Send last trade data to the client periodically.
-    loop {
-        tokio::time::sleep(PRICE_WS_REFRESH_INTERVAL).await;
+    let send_fut = async {
+        loop {
+            tokio::time::sleep(PRICE_WS_REFRESH_INTERVAL).await;
 
-        let current_timestamp = resolution.align_datetime(Utc::now());
-        let (last_db_ts, last_db_candle) = match state.storage.last_trade(&token, resolution).await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::info!("Failed to read last price: {e}.");
-                Default::default()
+            let current_timestamp = resolution.align_datetime(Utc::now());
+            let (last_db_ts, last_db_candle) =
+                match state.storage.last_trade(&token, resolution).await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::info!("Failed to read last price: {e}.");
+                        Default::default()
+                    }
+                };
+
+            let candle = if current_timestamp >= last_db_ts && current_timestamp < last_db_ts + step
+            {
+                last_db_candle
+            } else {
+                Candle {
+                    open: last_db_candle.close,
+                    close: last_db_candle.close,
+                    high: last_db_candle.close,
+                    low: last_db_candle.close,
+                    volume: 0.0,
+                }
+            };
+
+            let trade = TradeOhlcv {
+                timestamp: current_timestamp.timestamp_millis() as u64 / 1000,
+                candle,
+            };
+
+            let json_trade = match sqlx::types::Json::from(trade).encode_to_string() {
+                Ok(json) => json,
+                Err(e) => {
+                    tracing::info!("Failed to serialize trade: {e}.");
+                    break;
+                }
+            };
+            if let Err(e) = tx.send(Message::Text(json_trade.into())).await {
+                tracing::info!("Failed to send price: {e}.");
+                break;
+            };
+        }
+    };
+
+    let close_fut = async {
+        loop {
+            let received = rx.try_next().await;
+            if let Ok(Some(Message::Close(_))) = received {
+                break;
             }
-        };
+        }
+    };
 
-        let candle = if current_timestamp >= last_db_ts && current_timestamp < last_db_ts + step {
-            last_db_candle
-        } else {
-            Candle {
-                open: last_db_candle.close,
-                close: last_db_candle.close,
-                high: last_db_candle.close,
-                low: last_db_candle.close,
-                volume: 0.0,
-            }
-        };
+    tokio::select! {
+        _ = send_fut => {},
+        _ = close_fut => {},
+    };
 
-        let trade = TradeOhlcv {
-            timestamp: current_timestamp.timestamp_millis() as u64 / 1000,
-            candle,
-        };
-
-        let json_trade = sqlx::types::Json::from(trade).encode_to_string()?;
-        socket.send(Message::Text(json_trade.into())).await?;
-    }
+    Ok(())
 }
 
 // Fill gaps in trade events.
