@@ -12,14 +12,14 @@ use crate::model::IndexedPumpfunEvent;
 
 /// Pumpfun event indexer.
 pub struct Indexer {
-    _client: PumpFun,
+    client: PumpFun,
 }
 
 impl Indexer {
     /// Create new indexer.
     pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
-            _client: PumpFun::new(
+            client: PumpFun::new(
                 Arc::new(Keypair::new()),
                 Cluster::mainnet(CommitmentConfig::confirmed(), PriorityFee::default()),
             ),
@@ -35,13 +35,13 @@ impl Indexer {
     ) -> anyhow::Result<Subscription> {
         let index = AtomicU64::new(0);
         let subscription = self
-            ._client
+            .client
             .subscribe(
                 None,
                 Some(CommitmentConfig::confirmed()),
                 move |_, mb_event, mb_error, _| {
                     tracing::trace!("Received event: {mb_event:?}");
-                    
+
                     if let Some(err) = mb_error {
                         let error_str = err.to_string();
                         if error_str.contains("Unknown event:") {

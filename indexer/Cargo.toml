@@ -21,7 +21,7 @@ solana-pubsub-client = "2.3.6"
 solana-pubkey = "2.4.0"
 solana-rpc-client-types = "2.3.6"
 solana-commitment-config = "2.2.1"
-pumpfun = { version = "4.3.0", features = ["stream"] }
+pumpfun = { git = "https://github.com/tcuze/pumpfun-rs.git", features = ["stream"] }
 solana-keypair = "2.2.3"
 solana-rpc-client = "2.3.6"
 solana-account-decoder-client-types = "2.3.6"
