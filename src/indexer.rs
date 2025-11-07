@@ -37,6 +37,7 @@ impl Indexer {
         let subscription = self
             .client
             .subscribe(
+                None,
                 Some(CommitmentConfig::confirmed()),
                 move |_, mb_event, mb_error, _| {
                     tracing::trace!("Received event: {mb_event:?}");
